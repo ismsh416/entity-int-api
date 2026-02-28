@@ -1,12 +1,21 @@
 name: Build & Deploy App
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select Environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
 
     steps:
       - uses: actions/checkout@v4
@@ -16,14 +25,48 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Install Container Apps Extension
+        run: |
+          az extension add --name containerapp --upgrade
+
+      - name: Set Variables
+        run: |
+          echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "ACR_NAME=crentityint${{ github.event.inputs.environment }}001" >> $GITHUB_ENV
+          echo "CONTAINER_ENV=env-entityint-${{ github.event.inputs.environment }}-001" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Build JAR
         run: ./gradlew clean build
 
-      - name: Build Docker image
+      - name: Build Docker Image
         run: |
-          docker build -t entityintegrationacr.azurecr.io/entity-api:latest .
+          docker build -t $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG .
+
+      - name: Login to ACR
+        run: |
+          az acr login --name $ACR_NAME
 
       - name: Push Image
         run: |
-          az acr login --name entityintegrationacr
-          docker push entityintegrationacr.azurecr.io/entity-api:latest
+          docker push $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG
+
+      - name: Deploy to Azure Container App
+        run: |
+          az containerapp create \
+            --name entity-api-${{ github.event.inputs.environment }} \
+            --resource-group poc-rg \
+            --environment $CONTAINER_ENV \
+            --image $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG \
+            --target-port 8080 \
+            --ingress external \
+            --registry-server $ACR_NAME.azurecr.io \
+            --min-replicas 1 \
+            --max-replicas 2 \
+            --cpu 0.5 \
+            --memory 1Gi \
+            || \
+          az containerapp update \
+            --name entity-api-${{ github.event.inputs.environment }} \
+            --resource-group poc-rg \
+            --image $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG
