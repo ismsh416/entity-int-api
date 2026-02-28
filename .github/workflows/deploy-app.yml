@@ -18,7 +18,8 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -32,9 +33,11 @@ jobs:
       - name: Set Variables
         run: |
           echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "PROJECT_NAME=entityint" >> $GITHUB_ENV
           echo "ACR_NAME=crentityint${{ github.event.inputs.environment }}001" >> $GITHUB_ENV
           echo "CONTAINER_ENV=env-entityint-${{ github.event.inputs.environment }}-001" >> $GITHUB_ENV
           echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+          echo "APP_NAME=entity-api-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
 
       - name: Build JAR
         run: ./gradlew clean build
@@ -51,22 +54,37 @@ jobs:
         run: |
           docker push $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG
 
-      - name: Deploy to Azure Container App
+      - name: Deploy or Update Container App
         run: |
           az containerapp create \
-            --name entity-api-${{ github.event.inputs.environment }} \
+            --name $APP_NAME \
             --resource-group poc-rg \
             --environment $CONTAINER_ENV \
             --image $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG \
             --target-port 8080 \
             --ingress external \
             --registry-server $ACR_NAME.azurecr.io \
-            --min-replicas 1 \
-            --max-replicas 2 \
+            --min-replicas 0 \
+            --max-replicas 1 \
             --cpu 0.5 \
             --memory 1Gi \
-            || \
+          || \
           az containerapp update \
-            --name entity-api-${{ github.event.inputs.environment }} \
+            --name $APP_NAME \
             --resource-group poc-rg \
-            --image $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG
+            --image $ACR_NAME.azurecr.io/entity-api:$IMAGE_TAG \
+            --min-replicas 0 \
+            --max-replicas 1
+
+      - name: Print API URL
+        run: |
+          FQDN=$(az containerapp show \
+            --name $APP_NAME \
+            --resource-group poc-rg \
+            --query properties.configuration.ingress.fqdn \
+            -o tsv)
+
+          echo "======================================"
+          echo "API URL:"
+          echo "https://$FQDN"
+          echo "======================================"
