@@ -1,0 +1,29 @@
+name: Build & Deploy App
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build JAR
+        run: ./gradlew clean build
+
+      - name: Build Docker image
+        run: |
+          docker build -t entityintegrationacr.azurecr.io/entity-api:latest .
+
+      - name: Push Image
+        run: |
+          az acr login --name entityintegrationacr
+          docker push entityintegrationacr.azurecr.io/entity-api:latest
