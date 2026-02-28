@@ -10,7 +10,7 @@ public class EntityController {
 
     @GetMapping
     public String api(){
-        return "Hello";
+        return "Hello World!!!";
     }
 
     @GetMapping("/query/{name}")
